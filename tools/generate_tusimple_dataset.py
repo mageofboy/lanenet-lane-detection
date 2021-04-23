@@ -17,7 +17,8 @@ import shutil
 
 import cv2
 import numpy as np
-
+import sys
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 
 def init_args():
     """

@@ -17,7 +17,8 @@ import random
 import numpy as np
 import tensorflow as tf
 import loguru
-
+import sys
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 from local_utils.config_utils import parse_config_utils
 from data_provider import tf_io_pipline_tools
 
@@ -175,7 +176,7 @@ class LaneNetDataProducer(object):
                 _gt_binary_image_path = ops.join(self._gt_binary_image_dir, _gt_binary_image_name)
                 _gt_instance_image_name = ops.split(_gt_image_path)[1]
                 _gt_instance_image_path = ops.join(self._gt_instance_image_dir, _gt_instance_image_name)
-
+                
                 assert ops.exists(_gt_binary_image_path), '{:s} not exist'.format(_gt_binary_image_path)
                 assert ops.exists(_gt_instance_image_path), '{:s} not exist'.format(_gt_instance_image_path)
 
@@ -184,14 +185,12 @@ class LaneNetDataProducer(object):
                     _gt_binary_image_path,
                     _gt_instance_image_path)
                 )
-
             return _info
 
         def _split_training_examples(_example_info):
             random.shuffle(_example_info)
 
             _example_nums = len(_example_info)
-
             _train_example_info = _example_info[:int(_example_nums * 0.85)]
             _val_example_info = _example_info[int(_example_nums * 0.85):int(_example_nums * 0.9)]
             _test_example_info = _example_info[int(_example_nums * 0.9):]

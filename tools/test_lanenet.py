@@ -10,17 +10,20 @@ test LaneNet model on single image
 """
 import argparse
 import os.path as ops
-import time
+import time, sys
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 from lanenet_model import lanenet
 from lanenet_model import lanenet_postprocess
 from local_utils.config_utils import parse_config_utils
+# from local_utils.config_utils.parse_config_utils import Config #new
 from local_utils.log_util import init_logger
+
+# CFG = Config(config_path='./config/tusimple_lanenet.yaml') #new
 
 CFG = parse_config_utils.lanenet_cfg
 LOG = init_logger.get_logger(log_file_name_prefix='lanenet_test')
@@ -34,6 +37,9 @@ def init_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_path', type=str, help='The image path or the src image save dir')
     parser.add_argument('--weights_path', type=str, help='The model weights path')
+    # parser.add_argument('--dbscan_eps', type=float, help='DBSCAN param for eps') #new
+    # parser.add_argument('--dbscan_minsample', type=int, help='DBSCAN param for min sample') #new
+    parser.add_argument('--dbscan_test', type=bool, help="true if want to test dbscan")
 
     return parser.parse_args()
 
@@ -121,6 +127,10 @@ def test_lanenet(image_path, weights_path):
         t_cost = time.time() - t_start
         t_cost /= loop_times
         LOG.info('Single imgae inference cost time: {:.5f}s'.format(t_cost))
+        # for eps in range(5, 70):
+        #     for samp in range(10, 800, 5):
+                # CFG.POSTPROCESS.DBSCAN_EPS = eps/100
+                # CFG.POSTPROCESS.DBSCAN_MIN_SAMPLES = samp
 
         postprocess_result = postprocessor.postprocess(
             binary_seg_result=binary_seg_image[0],
@@ -135,6 +145,7 @@ def test_lanenet(image_path, weights_path):
 
         plt.figure('mask_image')
         plt.imshow(mask_image[:, :, (2, 1, 0)])
+        # plt.imsave(f"./dbscan_test/eps-{param.DBSCAN_EPS}_samp-{param.DBSCAN_MIN_SAMPLES}.jpg", mask_image[:, :, (2, 1, 0)])
         plt.figure('src_image')
         plt.imshow(image_vis[:, :, (2, 1, 0)])
         plt.figure('instance_image')
@@ -154,5 +165,4 @@ if __name__ == '__main__':
     """
     # init args
     args = init_args()
-
     test_lanenet(args.image_path, args.weights_path)

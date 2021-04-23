@@ -9,7 +9,8 @@
 Calculate model's fp fn and precision
 """
 import tensorflow as tf
-
+import sys
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 
 def calculate_model_precision(input_tensor, label_tensor):
     """

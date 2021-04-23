@@ -12,13 +12,13 @@ import argparse
 import glob
 import os
 import os.path as ops
-import time
+import time, sys
 
 import cv2
 import numpy as np
 import tensorflow as tf
 import tqdm
-
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 from lanenet_model import lanenet
 from lanenet_model import lanenet_postprocess
 from local_utils.config_utils import parse_config_utils
@@ -107,7 +107,6 @@ def eval_lanenet(src_dir, weights_path, save_dir):
             output_image_path = ops.join(output_image_dir, input_image_name)
             if ops.exists(output_image_path):
                 continue
-
             cv2.imwrite(output_image_path, postprocess_result['source_image'])
 
     return

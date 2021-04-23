@@ -8,6 +8,8 @@
 """
 Generate cityscapes tfrecords tools
 """
+import sys
+sys.path.append('/home/erdos/workspace/lanenet-lane-detection')
 from data_provider import lanenet_data_feed_pipline
 from local_utils.log_util import init_logger
 

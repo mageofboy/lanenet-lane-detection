@@ -10,10 +10,11 @@ LaneNet model post process
 """
 import os.path as ops
 import math
-
+import warnings
 import cv2
 import glog as log
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 
@@ -198,7 +199,7 @@ class _LaneNetCluster(object):
         :param instance_seg_ret:
         :return:
         """
-        idx = np.where(binary_seg_ret == 255)
+        idx = np.where(binary_seg_ret == 1)
         lane_embedding_feats = instance_seg_ret[idx]
         # idx_scale = np.vstack((idx[0] / 256.0, idx[1] / 512.0)).transpose()
         # lane_embedding_feats = np.hstack((lane_embedding_feats, idx_scale))
@@ -240,13 +241,13 @@ class _LaneNetCluster(object):
             return None, None
 
         lane_coords = []
-
+        print(f"unique labels {unique_labels.tolist()}")
         for index, label in enumerate(unique_labels.tolist()):
             if label == -1:
                 continue
             idx = np.where(db_labels == label)
             pix_coord_idx = tuple((coord[idx][:, 1], coord[idx][:, 0]))
-            mask[pix_coord_idx] = self._color_map[index]
+            mask[pix_coord_idx] = self._color_map[index % len(self._color_map)]
             lane_coords.append(coord[idx])
 
         return mask, lane_coords
@@ -256,7 +257,7 @@ class LaneNetPostProcessor(object):
     """
     lanenet post process for lane generation
     """
-    def __init__(self, cfg, ipm_remap_file_path='./data/tusimple_ipm_remap.yml'):
+    def __init__(self, cfg, ipm_remap_file_path='./data/carla_ipm_remap (2).yml'):
         """
 
         :param ipm_remap_file_path: ipm generate file path
@@ -312,8 +313,8 @@ class LaneNetPostProcessor(object):
         :return:
         """
         # convert binary_seg_result
-        binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
-
+        # binary_seg_result = np.array(binary_seg_result * 255, dtype=np.uint8)
+        # print(binary_seg_result)
         # apply image morphology operation to fill in the hold and reduce the small area
         morphological_ret = _morphological_process(binary_seg_result, kernel_size=5)
 
@@ -340,53 +341,97 @@ class LaneNetPostProcessor(object):
             }
 
         # lane line fit
+        #TODO: BELOW
         fit_params = []
         src_lane_pts = []  # lane pts every single lane
+        IMAGE_H = 1080
+        IMAGE_W = 1920
+        cutoff = 600
+        M = self._remap_to_ipm_x
+        Minv = self._remap_to_ipm_y
         for lane_index, coords in enumerate(lane_coords):
             if data_source == 'tusimple':
-                tmp_mask = np.zeros(shape=(720, 1280), dtype=np.uint8)
-                tmp_mask[tuple((np.int_(coords[:, 1] * 720 / 256), np.int_(coords[:, 0] * 1280 / 512)))] = 255
+                # tmp_mask = np.zeros(shape=(720, 1280), dtype=np.uint8)
+                # tmp_mask[tuple((np.int_(coords[:, 1] * 720 / 256), np.int_(coords[:, 0] * 1280 / 512)))] = 255
+                tmp_mask = np.zeros(shape=(IMAGE_H, IMAGE_W), dtype=np.uint8)
+                tmp_mask[tuple((np.int_(coords[:, 1] * IMAGE_H / 256), np.int_(coords[:, 0] * IMAGE_W / 512)))] = 255
+                # np.save(f'test{lane_index}.npy', tmp_mask)
+
             else:
                 raise ValueError('Wrong data source now only support tusimple')
-            tmp_ipm_mask = cv2.remap(
-                tmp_mask,
-                self._remap_to_ipm_x,
-                self._remap_to_ipm_y,
-                interpolation=cv2.INTER_NEAREST
-            )
-            nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
-            nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
 
+            tmp_mask = tmp_mask[cutoff:IMAGE_H, 0:IMAGE_W]
+            warped_lane = cv2.warpPerspective(tmp_mask, M, (IMAGE_W, IMAGE_H)) 
+            nonzero_y = np.array(warped_lane.nonzero()[0])
+            nonzero_x = np.array(warped_lane.nonzero()[1])
             fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
-            fit_params.append(fit_param)
+            poly = np.poly1d(fit_param)
+            new_y = np.linspace(10, IMAGE_H, IMAGE_H-10, endpoint=False)
+            new_x = poly(new_y)
 
-            [ipm_image_height, ipm_image_width] = tmp_ipm_mask.shape
-            plot_y = np.linspace(10, ipm_image_height, ipm_image_height - 10)
-            fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y + fit_param[2]
-            # fit_x = fit_param[0] * plot_y ** 3 + fit_param[1] * plot_y ** 2 + fit_param[2] * plot_y + fit_param[3]
-
+            res = np.zeros_like(warped_lane)
+            res[new_y.astype(int), np.clip(new_x.astype(int), 0, IMAGE_W - 1)] = 255
+            unwarped_img = cv2.warpPerspective(res, Minv, (IMAGE_W, 480)) 
+            test_y, test_x = unwarped_img.nonzero()
+            test_y = test_y + cutoff
             lane_pts = []
-            for index in range(0, plot_y.shape[0], 5):
-                src_x = self._remap_to_ipm_x[
-                    int(plot_y[index]), int(np.clip(fit_x[index], 0, ipm_image_width - 1))]
-                if src_x <= 0:
-                    continue
-                src_y = self._remap_to_ipm_y[
-                    int(plot_y[index]), int(np.clip(fit_x[index], 0, ipm_image_width - 1))]
-                src_y = src_y if src_y > 0 else 0
-
-                lane_pts.append([src_x, src_y])
-
+            for index in range(0, test_y.shape[0], 1):
+                lane_pts.append([test_x[index], test_y[index]])
             src_lane_pts.append(lane_pts)
+            # TODO: ABOVE
+            # tmp_ipm_mask = cv2.remap(
+            #     tmp_mask,
+            #     self._remap_to_ipm_x,
+            #     self._remap_to_ipm_y,
+            #     interpolation=cv2.INTER_NEAREST
+            # )
+            # nonzero_y = np.array(tmp_ipm_mask.nonzero()[0])
+            # nonzero_x = np.array(tmp_ipm_mask.nonzero()[1])
+            # if len(nonzero_x) == 0 or len(nonzero_y) == 0:
+            #     continue
+
+            # # with warnings.catch_warnings():
+            # #     warnings.filterwarnings('error')
+            # #     try:
+            # #         fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
+            # #     except Warning as e:
+            # #         ctlane = -1
+
+            # fit_param = np.polyfit(nonzero_y, nonzero_x, 2)
+            # fit_params.append(fit_param)
+
+            # [ipm_image_height, ipm_image_width] = tmp_ipm_mask.shape
+            # plot_y = np.linspace(10, ipm_image_height, ipm_image_height - 10)
+
+            # fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y + fit_param[2]
+            # # fit_x = fit_param[0] * plot_y ** 3 + fit_param[1] * plot_y ** 2 + fit_param[2] * plot_y + fit_param[3]
+
+            # lane_pts = []
+            # for index in range(0, plot_y.shape[0], 5):
+            #     src_x = self._remap_to_ipm_x[
+            #         int(plot_y[index]), int(np.clip(fit_x[index], 0, ipm_image_width - 1))]
+            #     if src_x <= 0:
+            #         continue
+            #     src_y = self._remap_to_ipm_y[
+            #         int(plot_y[index]), int(np.clip(fit_x[index], 0, ipm_image_width - 1))]
+            #     src_y = src_y if src_y > 0 else 0
+
+            #     lane_pts.append([src_x, src_y])
+
+            # src_lane_pts.append(lane_pts)
 
         # tusimple test data sample point along y axis every 10 pixels
+        # TODO: 2/25 uncomment below
         source_image_width = source_image.shape[1]
         for index, single_lane_pts in enumerate(src_lane_pts):
             single_lane_pt_x = np.array(single_lane_pts, dtype=np.float32)[:, 0]
             single_lane_pt_y = np.array(single_lane_pts, dtype=np.float32)[:, 1]
             if data_source == 'tusimple':
-                start_plot_y = 240
-                end_plot_y = 720
+                # start_plot_y = 240
+                # end_plot_y = 720
+                # deetermine where to start and end drawing line
+                start_plot_y = 360
+                end_plot_y = 1080
             else:
                 raise ValueError('Wrong data source now only support tusimple')
             step = int(math.floor((end_plot_y - start_plot_y) / 10))
